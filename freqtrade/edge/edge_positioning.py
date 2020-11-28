@@ -87,7 +87,7 @@ class Edge:
         heartbeat = self.edge_config.get('process_throttle_secs')
 
         if (self._last_updated > 0) and (
-                self._last_updated + heartbeat > arrow.utcnow().timestamp):
+                self._last_updated + heartbeat > arrow.utcnow().int_timestamp):
             return False
 
         data: Dict[str, Any] = {}
@@ -146,7 +146,7 @@ class Edge:
         # Fill missing, calculable columns, profit, duration , abs etc.
         trades_df = self._fill_calculable_fields(DataFrame(trades))
         self._cached_pairs = self._process_expectancy(trades_df)
-        self._last_updated = arrow.utcnow().timestamp
+        self._last_updated = arrow.utcnow().int_timestamp
 
         return True
 
@@ -310,8 +310,10 @@ class Edge:
 
         # Calculating number of losing trades, average win and average loss
         df['nb_loss_trades'] = df['nb_trades'] - df['nb_win_trades']
-        df['average_win'] = df['profit_sum'] / df['nb_win_trades']
-        df['average_loss'] = df['loss_sum'] / df['nb_loss_trades']
+        df['average_win'] = np.where(df['nb_win_trades'] == 0, 0.0,
+                                     df['profit_sum'] / df['nb_win_trades'])
+        df['average_loss'] = np.where(df['nb_loss_trades'] == 0, 0.0,
+                                      df['loss_sum'] / df['nb_loss_trades'])
 
         # Win rate = number of profitable trades / number of trades
         df['winrate'] = df['nb_win_trades'] / df['nb_trades']

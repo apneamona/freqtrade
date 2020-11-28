@@ -13,13 +13,13 @@ import numpy as np
 import pytest
 from telegram import Chat, Message, Update
 
-from freqtrade import constants, persistence
+from freqtrade import constants
 from freqtrade.commands import Arguments
 from freqtrade.data.converter import ohlcv_to_dataframe
 from freqtrade.edge import Edge, PairInfo
 from freqtrade.exchange import Exchange
 from freqtrade.freqtradebot import FreqtradeBot
-from freqtrade.persistence import Trade
+from freqtrade.persistence import Trade, init_db
 from freqtrade.resolvers import ExchangeResolver
 from freqtrade.worker import Worker
 from tests.conftest_trades import (mock_trade_1, mock_trade_2, mock_trade_3, mock_trade_4,
@@ -131,7 +131,7 @@ def patch_freqtradebot(mocker, config) -> None:
     :return: None
     """
     mocker.patch('freqtrade.freqtradebot.RPCManager', MagicMock())
-    persistence.init(config['db_url'])
+    init_db(config['db_url'])
     patch_exchange(mocker)
     mocker.patch('freqtrade.freqtradebot.RPCManager._init', MagicMock())
     mocker.patch('freqtrade.freqtradebot.RPCManager.send_msg', MagicMock())
@@ -219,7 +219,7 @@ def patch_coingekko(mocker) -> None:
 
 @pytest.fixture(scope='function')
 def init_persistence(default_conf):
-    persistence.init(default_conf['db_url'], default_conf['dry_run'])
+    init_db(default_conf['db_url'], default_conf['dry_run'])
 
 
 @pytest.fixture(scope="function")
@@ -297,7 +297,7 @@ def default_conf(testdatadir):
 @pytest.fixture
 def update():
     _update = Update(0)
-    _update.message = Message(0, 0, datetime.utcnow(), Chat(0, 0))
+    _update.message = Message(0, datetime.utcnow(), Chat(0, 0))
     return _update
 
 
@@ -792,7 +792,7 @@ def limit_buy_order_open():
         'side': 'buy',
         'symbol': 'mocked',
         'datetime': arrow.utcnow().isoformat(),
-        'timestamp': arrow.utcnow().timestamp,
+        'timestamp': arrow.utcnow().int_timestamp,
         'price': 0.00001099,
         'amount': 90.99181073,
         'filled': 0.0,
@@ -911,7 +911,7 @@ def limit_buy_order_canceled_empty(request):
             'info': {},
             'id': '1234512345',
             'clientOrderId': None,
-            'timestamp': arrow.utcnow().shift(minutes=-601).timestamp,
+            'timestamp': arrow.utcnow().shift(minutes=-601).int_timestamp,
             'datetime': arrow.utcnow().shift(minutes=-601).isoformat(),
             'lastTradeTimestamp': None,
             'symbol': 'LTC/USDT',
@@ -932,7 +932,7 @@ def limit_buy_order_canceled_empty(request):
             'info': {},
             'id': 'AZNPFF-4AC4N-7MKTAT',
             'clientOrderId': None,
-            'timestamp': arrow.utcnow().shift(minutes=-601).timestamp,
+            'timestamp': arrow.utcnow().shift(minutes=-601).int_timestamp,
             'datetime': arrow.utcnow().shift(minutes=-601).isoformat(),
             'lastTradeTimestamp': None,
             'status': 'canceled',
@@ -953,7 +953,7 @@ def limit_buy_order_canceled_empty(request):
             'info': {},
             'id': '1234512345',
             'clientOrderId': 'alb1234123',
-            'timestamp': arrow.utcnow().shift(minutes=-601).timestamp,
+            'timestamp': arrow.utcnow().shift(minutes=-601).int_timestamp,
             'datetime': arrow.utcnow().shift(minutes=-601).isoformat(),
             'lastTradeTimestamp': None,
             'symbol': 'LTC/USDT',
@@ -974,7 +974,7 @@ def limit_buy_order_canceled_empty(request):
             'info': {},
             'id': '1234512345',
             'clientOrderId': 'alb1234123',
-            'timestamp': arrow.utcnow().shift(minutes=-601).timestamp,
+            'timestamp': arrow.utcnow().shift(minutes=-601).int_timestamp,
             'datetime': arrow.utcnow().shift(minutes=-601).isoformat(),
             'lastTradeTimestamp': None,
             'symbol': 'LTC/USDT',
@@ -1000,7 +1000,7 @@ def limit_sell_order_open():
         'side': 'sell',
         'pair': 'mocked',
         'datetime': arrow.utcnow().isoformat(),
-        'timestamp': arrow.utcnow().timestamp,
+        'timestamp': arrow.utcnow().int_timestamp,
         'price': 0.00001173,
         'amount': 90.99181073,
         'filled': 0.0,

@@ -100,6 +100,7 @@ class Telegram(RPC):
             CommandHandler('performance', self._performance),
             CommandHandler('daily', self._daily),
             CommandHandler('count', self._count),
+            CommandHandler('locks', self._locks),
             CommandHandler(['reload_config', 'reload_conf'], self._reload_config),
             CommandHandler(['show_config', 'show_conf'], self._show_config),
             CommandHandler('stopbuy', self._stopbuy),
@@ -246,18 +247,17 @@ class Telegram(RPC):
                     "*Open Rate:* `{open_rate:.8f}`",
                     "*Close Rate:* `{close_rate}`" if r['close_rate'] else "",
                     "*Current Rate:* `{current_rate:.8f}`",
-                    ("*Close Profit:* `{close_profit_pct}`"
-                     if r['close_profit_pct'] is not None else ""),
-                    "*Current Profit:* `{current_profit_pct:.2f}%`",
+                    ("*Current Profit:* " if r['is_open'] else "*Close Profit: *")
+                    + "`{profit_pct:.2f}%`",
                 ]
-                if (r['stop_loss'] != r['initial_stop_loss']
+                if (r['stop_loss_abs'] != r['initial_stop_loss_abs']
                         and r['initial_stop_loss_pct'] is not None):
                     # Adding initial stoploss only if it is different from stoploss
-                    lines.append("*Initial Stoploss:* `{initial_stop_loss:.8f}` "
+                    lines.append("*Initial Stoploss:* `{initial_stop_loss_abs:.8f}` "
                                  "`({initial_stop_loss_pct:.2f}%)`")
 
                 # Adding stoploss and stoploss percentage only if it is not None
-                lines.append("*Stoploss:* `{stop_loss:.8f}` " +
+                lines.append("*Stoploss:* `{stop_loss_abs:.8f}` " +
                              ("`({stop_loss_pct:.2f}%)`" if r['stop_loss_pct'] else ""))
                 lines.append("*Stoploss distance:* `{stoploss_current_dist:.8f}` "
                              "`({stoploss_current_dist_pct:.2f}%)`")
@@ -609,6 +609,26 @@ class Telegram(RPC):
             self._send_msg(str(e))
 
     @authorized_only
+    def _locks(self, update: Update, context: CallbackContext) -> None:
+        """
+        Handler for /locks.
+        Returns the currently active locks
+        """
+        try:
+            locks = self._rpc_locks()
+            message = tabulate([[
+                lock['pair'],
+                lock['lock_end_time'],
+                lock['reason']] for lock in locks['locks']],
+                headers=['Pair', 'Until', 'Reason'],
+                tablefmt='simple')
+            message = "<pre>{}</pre>".format(message)
+            logger.debug(message)
+            self._send_msg(message, parse_mode=ParseMode.HTML)
+        except RPCException as e:
+            self._send_msg(str(e))
+
+    @authorized_only
     def _whitelist(self, update: Update, context: CallbackContext) -> None:
         """
         Handler for /whitelist
@@ -719,8 +739,8 @@ class Telegram(RPC):
                    "*/delete <trade_id>:* `Instantly delete the given trade in the database`\n"
                    "*/performance:* `Show performance of each finished trade grouped by pair`\n"
                    "*/daily <n>:* `Shows profit or loss per day, over the last n days`\n"
-                   "*/count:* `Show number of trades running compared to allowed number of trades`"
-                   "\n"
+                   "*/count:* `Show number of active trades compared to allowed number of trades`\n"
+                   "*/locks:* `Show currently locked pairs`\n"
                    "*/balance:* `Show account balance per currency`\n"
                    "*/stopbuy:* `Stops buying, but handles open trades gracefully` \n"
                    "*/reload_config:* `Reload configuration file` \n"
@@ -755,7 +775,8 @@ class Telegram(RPC):
         :param update: message update
         :return: None
         """
-        val = self._rpc_show_config(self._freqtrade.config)
+        val = RPC._rpc_show_config(self._freqtrade.config, self._freqtrade.state)
+
         if val['trailing_stop']:
             sl_info = (
                 f"*Initial Stoploss:* `{val['stoploss']}`\n"

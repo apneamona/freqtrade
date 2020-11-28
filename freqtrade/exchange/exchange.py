@@ -53,7 +53,7 @@ class Exchange:
         "ohlcv_partial_candle": True,
         "trades_pagination": "time",  # Possible are "time" or "id"
         "trades_pagination_arg": "since",
-
+        "l2_limit_range": None,
     }
     _ft_has: Dict = {}
 
@@ -124,7 +124,8 @@ class Exchange:
 
             # Check if all pairs are available
             self.validate_stakecurrency(config['stake_currency'])
-            self.validate_pairs(config['exchange']['pair_whitelist'])
+            if not exchange_config.get('skip_pair_validation'):
+                self.validate_pairs(config['exchange']['pair_whitelist'])
             self.validate_ordertypes(config.get('order_types', {}))
             self.validate_order_time_in_force(config.get('order_time_in_force', {}))
             self.validate_required_startup_candles(config.get('startup_candle_count', 0))
@@ -282,7 +283,7 @@ class Exchange:
                 asyncio.get_event_loop().run_until_complete(
                     self._api_async.load_markets(reload=reload))
 
-        except ccxt.BaseError as e:
+        except (asyncio.TimeoutError, ccxt.BaseError) as e:
             logger.warning('Could not load async markets. Reason: %s', e)
             return
 
@@ -291,7 +292,7 @@ class Exchange:
         try:
             self._api.load_markets()
             self._load_async_markets()
-            self._last_markets_refresh = arrow.utcnow().timestamp
+            self._last_markets_refresh = arrow.utcnow().int_timestamp
         except ccxt.BaseError as e:
             logger.warning('Unable to initialize markets. Reason: %s', e)
 
@@ -300,14 +301,14 @@ class Exchange:
         # Check whether markets have to be reloaded
         if (self._last_markets_refresh > 0) and (
                 self._last_markets_refresh + self.markets_refresh_interval
-                > arrow.utcnow().timestamp):
+                > arrow.utcnow().int_timestamp):
             return None
         logger.debug("Performing scheduled market reload..")
         try:
             self._api.load_markets(reload=True)
             # Also reload async markets to avoid issues with newly listed pairs
             self._load_async_markets(reload=True)
-            self._last_markets_refresh = arrow.utcnow().timestamp
+            self._last_markets_refresh = arrow.utcnow().int_timestamp
         except ccxt.BaseError:
             logger.exception("Could not reload markets.")
 
@@ -501,7 +502,7 @@ class Exchange:
             'side': side,
             'remaining': _amount,
             'datetime': arrow.utcnow().isoformat(),
-            'timestamp': int(arrow.utcnow().timestamp * 1000),
+            'timestamp': int(arrow.utcnow().int_timestamp * 1000),
             'status': "closed" if ordertype == "market" else "open",
             'fee': None,
             'info': {}
@@ -523,7 +524,7 @@ class Exchange:
                     'rate': self.get_fee(pair)
                 }
             })
-        if closed_order["type"] in ["stop_loss_limit"]:
+        if closed_order["type"] in ["stop_loss_limit", "stop-loss-limit"]:
             closed_order["info"].update({"stopPrice": closed_order["price"]})
         self._dry_run_open_orders[closed_order["id"]] = closed_order
 
@@ -678,15 +679,31 @@ class Exchange:
         :param pair: Pair to download
         :param timeframe: Timeframe to get data for
         :param since_ms: Timestamp in milliseconds to get history from
-        :returns List with candle (OHLCV) data
+        :return: List with candle (OHLCV) data
         """
         return asyncio.get_event_loop().run_until_complete(
             self._async_get_historic_ohlcv(pair=pair, timeframe=timeframe,
                                            since_ms=since_ms))
 
+    def get_historic_ohlcv_as_df(self, pair: str, timeframe: str,
+                                 since_ms: int) -> DataFrame:
+        """
+        Minimal wrapper around get_historic_ohlcv - converting the result into a dataframe
+        :param pair: Pair to download
+        :param timeframe: Timeframe to get data for
+        :param since_ms: Timestamp in milliseconds to get history from
+        :return: OHLCV DataFrame
+        """
+        ticks = self.get_historic_ohlcv(pair, timeframe, since_ms=since_ms)
+        return ohlcv_to_dataframe(ticks, timeframe, pair=pair, fill_missing=True,
+                                  drop_incomplete=self._ohlcv_partial_candle)
+
     async def _async_get_historic_ohlcv(self, pair: str,
                                         timeframe: str,
                                         since_ms: int) -> List:
+        """
+        Download historic ohlcv
+        """
 
         one_call = timeframe_to_msecs(timeframe) * self._ohlcv_candle_limit
         logger.debug(
@@ -696,15 +713,20 @@ class Exchange:
         )
         input_coroutines = [self._async_get_candle_history(
             pair, timeframe, since) for since in
-            range(since_ms, arrow.utcnow().timestamp * 1000, one_call)]
+            range(since_ms, arrow.utcnow().int_timestamp * 1000, one_call)]
 
         results = await asyncio.gather(*input_coroutines, return_exceptions=True)
 
         # Combine gathered results
         data: List = []
-        for p, timeframe, res in results:
+        for res in results:
+            if isinstance(res, Exception):
+                logger.warning("Async code raised an exception: %s", res.__class__.__name__)
+                continue
+            # Deconstruct tuple if it's not an exception
+            p, _, new_data = res
             if p == pair:
-                data.extend(res)
+                data.extend(new_data)
         # Sort data again after extending the result - above calls return in "async order"
         data = sorted(data, key=lambda x: x[0])
         logger.info("Downloaded data for %s with length %s.", pair, len(data))
@@ -741,9 +763,8 @@ class Exchange:
             if isinstance(res, Exception):
                 logger.warning("Async code raised an exception: %s", res.__class__.__name__)
                 continue
-            pair = res[0]
-            timeframe = res[1]
-            ticks = res[2]
+            # Deconstruct tuple (has 3 elements)
+            pair, timeframe, ticks = res
             # keeping last candle time as last refreshed time of the pair
             if ticks:
                 self._pairs_last_refresh_time[(pair, timeframe)] = ticks[-1][0] // 1000
@@ -759,7 +780,7 @@ class Exchange:
         interval_in_sec = timeframe_to_seconds(timeframe)
 
         return not ((self._pairs_last_refresh_time.get((pair, timeframe), 0)
-                     + interval_in_sec) >= arrow.utcnow().timestamp)
+                     + interval_in_sec) >= arrow.utcnow().int_timestamp)
 
     @retrier_async
     async def _async_get_candle_history(self, pair: str, timeframe: str,
@@ -1069,6 +1090,16 @@ class Exchange:
             return self.fetch_stoploss_order(order_id, pair)
         return self.fetch_order(order_id, pair)
 
+    @staticmethod
+    def get_next_limit_in_list(limit: int, limit_range: Optional[List[int]]):
+        """
+        Get next greater value in the list.
+        Used by fetch_l2_order_book if the api only supports a limited range
+        """
+        if not limit_range:
+            return limit
+        return min([x for x in limit_range if limit <= x] + [max(limit_range)])
+
     @retrier
     def fetch_l2_order_book(self, pair: str, limit: int = 100) -> dict:
         """
@@ -1077,9 +1108,10 @@ class Exchange:
         Returns a dict in the format
         {'asks': [price, volume], 'bids': [price, volume]}
         """
+        limit1 = self.get_next_limit_in_list(limit, self._ft_has['l2_limit_range'])
         try:
 
-            return self._api.fetch_l2_order_book(pair, limit)
+            return self._api.fetch_l2_order_book(pair, limit1)
         except ccxt.NotSupported as e:
             raise OperationalException(
                 f'Exchange {self._api.name} does not support fetching order book.'

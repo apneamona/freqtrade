@@ -20,13 +20,13 @@ nav:
     - Hyperopt: hyperopt.md
     - Edge Positioning: edge.md
     - Utility Subcommands: utils.md
-    - Exchange-specific Notes: exchanges.md
     - FAQ: faq.md
     - Data Analysis:
         - Jupyter Notebooks: data-analysis.md
         - Strategy analysis: strategy_analysis_example.md
         - Plotting: plotting.md
     - SQL Cheatsheet: sql_cheatsheet.md
+    - Exchange-specific Notes: exchanges.md
     - Advanced Post-installation Tasks: advanced-setup.md
     - Advanced Strategy: strategy-advanced.md
     - Advanced Hyperopt: advanced-hyperopt.md
@@ -55,16 +55,16 @@ markdown_extensions:
         permalink: true
     - pymdownx.arithmatex:
         generic: true
-    - pymdownx.caret
-    - pymdownx.critic
     - pymdownx.details
     - pymdownx.inlinehilite
     - pymdownx.magiclink
-    - pymdownx.mark
+    - pymdownx.pathconverter
     - pymdownx.smartsymbols
+    - pymdownx.snippets:
+        base_path: docs
+        check_paths: true
     - pymdownx.tabbed
     - pymdownx.superfences
     - pymdownx.tasklist:
         custom_checkbox: true
-    - pymdownx.tilde
     - mdx_truly_sane_lists

@@ -353,11 +353,10 @@ optional arguments:
                         class (IHyperOptLoss). Different functions can
                         generate completely different results, since the
                         target for optimization is different. Built-in
-                        Hyperopt-loss-functions are: DefaultHyperOptLoss,
+                        Hyperopt-loss-functions are: ShortTradeDurHyperOptLoss,
                         OnlyProfitHyperOptLoss, SharpeHyperOptLoss,
                         SharpeHyperOptLossDaily, SortinoHyperOptLoss,
-                        SortinoHyperOptLossDaily.(default:
-                        `DefaultHyperOptLoss`).
+                        SortinoHyperOptLossDaily.
 
 Common arguments:
   -v, --verbose         Verbose mode (-vv for more, -vvv to get all messages).

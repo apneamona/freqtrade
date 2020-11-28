@@ -13,13 +13,13 @@ from numpy import NAN, int64, mean
 from pandas import DataFrame
 
 from freqtrade.configuration.timerange import TimeRange
-from freqtrade.constants import CANCEL_REASON
+from freqtrade.constants import CANCEL_REASON, DATETIME_PRINT_FORMAT
 from freqtrade.data.history import load_data
 from freqtrade.exceptions import ExchangeError, PricingError
 from freqtrade.exchange import timeframe_to_minutes, timeframe_to_msecs
 from freqtrade.loggers import bufferHandler
 from freqtrade.misc import shorten_date
-from freqtrade.persistence import Trade
+from freqtrade.persistence import PairLocks, Trade
 from freqtrade.rpc.fiat_convert import CryptoToFiatConverter
 from freqtrade.state import State
 from freqtrade.strategy.interface import SellType
@@ -93,7 +93,8 @@ class RPC:
     def send_msg(self, msg: Dict[str, str]) -> None:
         """ Sends a message to all registered rpc modules """
 
-    def _rpc_show_config(self, config) -> Dict[str, Any]:
+    @staticmethod
+    def _rpc_show_config(config, botstate: State) -> Dict[str, Any]:
         """
         Return a dict of config options.
         Explicitly does NOT return the full config to avoid leakage of sensitive
@@ -104,22 +105,24 @@ class RPC:
             'stake_currency': config['stake_currency'],
             'stake_amount': config['stake_amount'],
             'max_open_trades': config['max_open_trades'],
-            'minimal_roi': config['minimal_roi'].copy(),
-            'stoploss': config['stoploss'],
-            'trailing_stop': config['trailing_stop'],
+            'minimal_roi': config['minimal_roi'].copy() if 'minimal_roi' in config else {},
+            'stoploss': config.get('stoploss'),
+            'trailing_stop': config.get('trailing_stop'),
             'trailing_stop_positive': config.get('trailing_stop_positive'),
             'trailing_stop_positive_offset': config.get('trailing_stop_positive_offset'),
             'trailing_only_offset_is_reached': config.get('trailing_only_offset_is_reached'),
-            'ticker_interval': config['timeframe'],  # DEPRECATED
-            'timeframe': config['timeframe'],
-            'timeframe_ms': timeframe_to_msecs(config['timeframe']),
-            'timeframe_min': timeframe_to_minutes(config['timeframe']),
+            'timeframe': config.get('timeframe'),
+            'timeframe_ms': timeframe_to_msecs(config['timeframe']
+                                               ) if 'timeframe' in config else '',
+            'timeframe_min': timeframe_to_minutes(config['timeframe']
+                                                  ) if 'timeframe' in config else '',
             'exchange': config['exchange']['name'],
             'strategy': config['strategy'],
             'forcebuy_enabled': config.get('forcebuy_enable', False),
             'ask_strategy': config.get('ask_strategy', {}),
             'bid_strategy': config.get('bid_strategy', {}),
-            'state': str(self._freqtrade.state) if self._freqtrade else '',
+            'state': str(botstate),
+            'runmode': config['runmode'].value
         }
         return val
 
@@ -152,17 +155,18 @@ class RPC:
                 stoploss_current_dist = trade.stop_loss - current_rate
                 stoploss_current_dist_ratio = stoploss_current_dist / current_rate
 
-                fmt_close_profit = (f'{round(trade.close_profit * 100, 2):.2f}%'
-                                    if trade.close_profit is not None else None)
                 trade_dict = trade.to_json()
                 trade_dict.update(dict(
                     base_currency=self._freqtrade.config['stake_currency'],
                     close_profit=trade.close_profit if trade.close_profit is not None else None,
-                    close_profit_pct=fmt_close_profit,
                     current_rate=current_rate,
-                    current_profit=current_profit,
-                    current_profit_pct=round(current_profit * 100, 2),
-                    current_profit_abs=current_profit_abs,
+                    current_profit=current_profit,  # Deprectated
+                    current_profit_pct=round(current_profit * 100, 2),  # Deprectated
+                    current_profit_abs=current_profit_abs,  # Deprectated
+                    profit_ratio=current_profit,
+                    profit_pct=round(current_profit * 100, 2),
+                    profit_abs=current_profit_abs,
+
                     stoploss_current_dist=stoploss_current_dist,
                     stoploss_current_dist_ratio=round(stoploss_current_dist_ratio, 8),
                     stoploss_current_dist_pct=round(stoploss_current_dist_ratio * 100, 2),
@@ -520,7 +524,7 @@ class RPC:
         stake_currency = self._freqtrade.config.get('stake_currency')
         if not self._freqtrade.exchange.get_pair_quote_currency(pair) == stake_currency:
             raise RPCException(
-                f'Wrong pair selected. Please pairs with stake {stake_currency} pairs only')
+                f'Wrong pair selected. Only pairs with stake-currency {stake_currency} allowed.')
         # check if valid pair
 
         # check if pair already has an open pair
@@ -599,6 +603,15 @@ class RPC:
             'total_stake': sum((trade.open_rate * trade.amount) for trade in trades)
         }
 
+    def _rpc_locks(self) -> Dict[str, Any]:
+        """ Returns the  current locks"""
+
+        locks = PairLocks.get_pair_locks(None)
+        return {
+            'lock_count': len(locks),
+            'locks': [lock.to_json() for lock in locks]
+        }
+
     def _rpc_whitelist(self) -> Dict:
         """ Returns the currently active whitelist"""
         res = {'method': self._freqtrade.pairlists.name_list,
@@ -638,7 +651,7 @@ class RPC:
             buffer = bufferHandler.buffer[-limit:]
         else:
             buffer = bufferHandler.buffer
-        records = [[datetime.fromtimestamp(r.created).strftime("%Y-%m-%d %H:%M:%S"),
+        records = [[datetime.fromtimestamp(r.created).strftime(DATETIME_PRINT_FORMAT),
                    r.created * 1000, r.name, r.levelname,
                    r.message + ('\n' + r.exc_text if r.exc_text else '')]
                    for r in buffer]
@@ -656,8 +669,9 @@ class RPC:
             raise RPCException('Edge is not enabled.')
         return self._freqtrade.edge.accepted_pairs()
 
-    def _convert_dataframe_to_dict(self, strategy: str, pair: str, timeframe: str,
-                                   dataframe: DataFrame, last_analyzed: datetime) -> Dict[str, Any]:
+    @staticmethod
+    def _convert_dataframe_to_dict(strategy: str, pair: str, timeframe: str, dataframe: DataFrame,
+                                   last_analyzed: datetime) -> Dict[str, Any]:
         has_content = len(dataframe) != 0
         buy_signals = 0
         sell_signals = 0
@@ -711,7 +725,8 @@ class RPC:
         return self._convert_dataframe_to_dict(self._freqtrade.config['strategy'],
                                                pair, timeframe, _data, last_analyzed)
 
-    def _rpc_analysed_history_full(self, config, pair: str, timeframe: str,
+    @staticmethod
+    def _rpc_analysed_history_full(config, pair: str, timeframe: str,
                                    timerange: str) -> Dict[str, Any]:
         timerange_parsed = TimeRange.parse_timerange(timerange)
 
@@ -726,8 +741,8 @@ class RPC:
         strategy = StrategyResolver.load_strategy(config)
         df_analyzed = strategy.analyze_ticker(_data[pair], {'pair': pair})
 
-        return self._convert_dataframe_to_dict(strategy.get_strategy_name(), pair, timeframe,
-                                               df_analyzed, arrow.Arrow.utcnow().datetime)
+        return RPC._convert_dataframe_to_dict(strategy.get_strategy_name(), pair, timeframe,
+                                              df_analyzed, arrow.Arrow.utcnow().datetime)
 
     def _rpc_plot_config(self) -> Dict[str, Any]:
 

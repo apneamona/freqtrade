@@ -192,6 +192,7 @@ class ApiServer(RPC):
         self.app.add_url_rule(f'{BASE_URI}/balance', 'balance',
                               view_func=self._balance, methods=['GET'])
         self.app.add_url_rule(f'{BASE_URI}/count', 'count', view_func=self._count, methods=['GET'])
+        self.app.add_url_rule(f'{BASE_URI}/locks', 'locks', view_func=self._locks, methods=['GET'])
         self.app.add_url_rule(f'{BASE_URI}/daily', 'daily', view_func=self._daily, methods=['GET'])
         self.app.add_url_rule(f'{BASE_URI}/edge', 'edge', view_func=self._edge, methods=['GET'])
         self.app.add_url_rule(f'{BASE_URI}/logs', 'log', view_func=self._get_logs, methods=['GET'])
@@ -328,7 +329,7 @@ class ApiServer(RPC):
         """
         Prints the bot's version
         """
-        return jsonify(self._rpc_show_config(self._config))
+        return jsonify(RPC._rpc_show_config(self._config, self._freqtrade.state))
 
     @require_login
     @rpc_catch_errors
@@ -349,6 +350,15 @@ class ApiServer(RPC):
         """
         msg = self._rpc_count()
         return jsonify(msg)
+
+    @require_login
+    @rpc_catch_errors
+    def _locks(self):
+        """
+        Handler for /locks.
+        Returns the currently active locks.
+        """
+        return jsonify(self._rpc_locks())
 
     @require_login
     @rpc_catch_errors
@@ -498,6 +508,8 @@ class ApiServer(RPC):
         """
         asset = request.json.get("pair")
         price = request.json.get("price", None)
+        price = float(price) if price is not None else price
+
         trade = self._rpc_forcebuy(asset, price)
         if trade:
             return jsonify(trade.to_json())
@@ -563,7 +575,7 @@ class ApiServer(RPC):
         config.update({
             'strategy': strategy,
         })
-        results = self._rpc_analysed_history_full(config, pair, timeframe, timerange)
+        results = RPC._rpc_analysed_history_full(config, pair, timeframe, timerange)
         return jsonify(results)
 
     @require_login

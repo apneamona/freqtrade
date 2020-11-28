@@ -11,7 +11,6 @@ DEFAULT_EXCHANGE = 'bittrex'
 PROCESS_THROTTLE_SECS = 5  # sec
 HYPEROPT_EPOCH = 100  # epochs
 RETRY_TIMEOUT = 30  # sec
-DEFAULT_HYPEROPT_LOSS = 'DefaultHyperOptLoss'
 DEFAULT_DB_PROD_URL = 'sqlite:///tradesv3.sqlite'
 DEFAULT_DB_DRYRUN_URL = 'sqlite:///tradesv3.dryrun.sqlite'
 UNLIMITED_STAKE_AMOUNT = 'unlimited'
@@ -21,9 +20,12 @@ REQUIRED_ORDERTYPES = ['buy', 'sell', 'stoploss', 'stoploss_on_exchange']
 ORDERBOOK_SIDES = ['ask', 'bid']
 ORDERTYPE_POSSIBILITIES = ['limit', 'market']
 ORDERTIF_POSSIBILITIES = ['gtc', 'fok', 'ioc']
+HYPEROPT_LOSS_BUILTIN = ['ShortTradeDurHyperOptLoss', 'OnlyProfitHyperOptLoss',
+                         'SharpeHyperOptLoss', 'SharpeHyperOptLossDaily',
+                         'SortinoHyperOptLoss', 'SortinoHyperOptLossDaily']
 AVAILABLE_PAIRLISTS = ['StaticPairList', 'VolumePairList',
                        'AgeFilter', 'PrecisionFilter', 'PriceFilter',
-                       'ShuffleFilter', 'SpreadFilter']
+                       'RangeStabilityFilter', 'ShuffleFilter', 'SpreadFilter']
 AVAILABLE_DATAHANDLERS = ['json', 'jsongz', 'hdf5']
 DRY_RUN_WALLET = 1000
 DATETIME_PRINT_FORMAT = '%Y-%m-%d %H:%M:%S'
@@ -180,9 +182,6 @@ CONF_SCHEMA = {
         'experimental': {
             'type': 'object',
             'properties': {
-                'use_sell_signal': {'type': 'boolean'},
-                'sell_profit_only': {'type': 'boolean'},
-                'ignore_roi_if_buy_signal': {'type': 'boolean'},
                 'block_bad_exchanges': {'type': 'boolean'}
             }
         },
@@ -363,3 +362,6 @@ CANCEL_REASON = {
 # List of pairs with their timeframes
 PairWithTimeframe = Tuple[str, str]
 ListPairsWithTimeframes = List[PairWithTimeframe]
+
+# Type for trades list
+TradeList = List[List]
