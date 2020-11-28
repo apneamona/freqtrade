@@ -596,6 +596,7 @@ Inactive markets are always removed from the resulting pairlist. Explicitly blac
 * [`PriceFilter`](#pricefilter)
 * [`ShuffleFilter`](#shufflefilter)
 * [`SpreadFilter`](#spreadfilter)
+* [`PerformanceFilter`](#performancefilter)
 
 !!! Tip "Testing pairlists"
     Pairlist configurations can be quite tricky to get right. Best use the [`test-pairlist`](utils.md#test-pairlist) utility subcommand to test your configuration quickly.
@@ -690,9 +691,33 @@ Example:
 
 If `DOGE/BTC` maximum bid is 0.00000026 and minimum ask is 0.00000027, the ratio is calculated as: `1 - bid/ask ~= 0.037` which is `> 0.005` and this pair will be filtered out.
 
+#### PerformanceFilter
+
+The `PerformanceFilter` allows sorting and filtering of pairs based on performance (expectancy, winrate and/or profit). Filter takes the pairlist from upstream filter. Then it sorts and filters only those pairs with minimal number of trades. Pairs with less then minimal number of trades remain on the list without sorting or filtering.
+The following settings are available: 
+* `max_trade_duration`
+* `min_trades`
+* `max_trades`
+* `min_profit`
+* `min_winrate`
+* `min_expectancy`
+
+The `max_trade_duration` setting filters out all trades with very long duration. It is disabled if it is set to `0`. Defaults to `0`.
+
+The `min_trades` setting limits the minimal number of trades needed for performance calculation. It is disabled if it is set to `0`. Defaults to `0` (it is highly recommended to increase this number as much as possible).
+
+The `max_trades` setting limits the range of performance calculation to the maximal number of trades per pair. It is disabled if it is set to `0`. Defaults to `0`.
+
+The `min_profit` setting filters out all pairs with profit below this value. It is disabled if it is set to `0`. Defaults to `0`.
+
+The `min_winrate` setting filters out all pairs with winrate below this value. It is disabled if it is set to `0`. Defaults to `0`.
+
+The `min_expectancy` setting filters out all pairs with expectancy below this value. It is disabled if it is set to `0`. Defaults to `0`. 
+
 ### Full example of Pairlist Handlers
 
-The below example blacklists `BNB/BTC`, uses `VolumePairList` with `20` assets, sorting pairs by `quoteVolume` and applies both [`PrecisionFilter`](#precisionfilter) and [`PriceFilter`](#price-filter), filtering all assets where 1 priceunit is > 1%. Then the `SpreadFilter` is applied and pairs are finally shuffled with the random seed set to some predefined value.
+The below example blacklists `BNB/BTC`, uses `VolumePairList` with `20` assets, sorting pairs by `quoteVolume` and applies both [`PrecisionFilter`](#precisionfilter) and [`PriceFilter`](#price-filter), filtering all assets where 1 priceunit is > 1%. Then the `SpreadFilter` is applied and pairs are shuffled with the random seed set to some predefined value.
+Finally [`PerformanceFilter`](#performancefilter) takes the pairlist and sorts by `sort_key` only those pairs with at least 10 trades (but taking maximum of 30 recent trades for calculation), then filters out pairs with low winrate and low expectancy. Remaining pairs in pairlist are left as they are.
 
 ```json
 "exchange": {
@@ -709,8 +734,18 @@ The below example blacklists `BNB/BTC`, uses `VolumePairList` with `20` assets, 
     {"method": "PrecisionFilter"},
     {"method": "PriceFilter", "low_price_ratio": 0.01},
     {"method": "SpreadFilter", "max_spread_ratio": 0.005},
-    {"method": "ShuffleFilter", "seed": 42}
-    ],
+    {"method": "ShuffleFilter", "seed": 42},
+    {
+        "method": "PerformanceFilter",
+        "max_trade_duration": 0,
+        "min_trades": 10,
+        "max_trades": 30,
+        "min_profit": 0,
+        "sort_key": ["expectancy", "winrate"],
+        "minimum_winrate": 0.50,
+        "minimum_expectancy": 0.30
+    }
+],
 ```
 
 ## Switch to Dry-run mode
